@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import React, { useState, useEffect } from 'react'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import {
   Receipt,
   Building2,
@@ -18,7 +18,18 @@ export const Register: React.FC = () => {
   const { registerTenantAndUser } = useAuth()
   const { toast } = useToast()
 
+  const [searchParams] = useSearchParams()
   const [step, setStep] = useState<1 | 2>(1)
+
+  // Selected plan from URL query param e.g. ?plano=essencial or ?plano=profissional
+  const [selectedPlan, setSelectedPlan] = useState<string>('gratis')
+
+  useEffect(() => {
+    const p = searchParams.get('plano') || searchParams.get('plan')
+    if (p && ['gratis', 'essencial', 'profissional', 'enterprise'].includes(p.toLowerCase())) {
+      setSelectedPlan(p.toLowerCase())
+    }
+  }, [searchParams])
 
   // Step 1: Company data
   const [companyName, setCompanyName] = useState('')
@@ -66,6 +77,7 @@ export const Register: React.FC = () => {
           name: companyName,
           cnpj,
           ie,
+          plan: selectedPlan,
         },
         {
           name: userName,
@@ -98,7 +110,19 @@ export const Register: React.FC = () => {
           <h1 className="text-2xl font-bold text-white tracking-tight">
             Criar Conta no Hub Vendas
           </h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium">
+            <span>Plano selecionado:</span>
+            <span className="font-semibold uppercase tracking-wider text-emerald-300">
+              {selectedPlan === 'gratis'
+                ? 'Teste Grátis (5 dias)'
+                : selectedPlan === 'essencial'
+                  ? 'Essencial'
+                  : selectedPlan === 'profissional'
+                    ? 'Profissional'
+                    : 'Enterprise'}
+            </span>
+          </div>
+          <p className="text-sm text-slate-400 mt-2">
             Configure seu tenant multi-vendedor e comece a gerenciar suas vendas
           </p>
         </div>
@@ -172,6 +196,22 @@ export const Register: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Plano Escolhido
+                  </label>
+                  <select
+                    value={selectedPlan}
+                    onChange={(e) => setSelectedPlan(e.target.value)}
+                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-slate-900 font-medium"
+                  >
+                    <option value="gratis">Teste Grátis (5 dias)</option>
+                    <option value="essencial">Plano Essencial - R$ 97/mês</option>
+                    <option value="profissional">Plano Profissional - R$ 197/mês</option>
+                    <option value="enterprise">Plano Enterprise - R$ 397/mês</option>
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
                     CNPJ

@@ -228,3 +228,24 @@ export const marketplaceService = {
     })
   },
 }
+
+export const leadsService = {
+  async submitLead(data: {
+    name: string
+    email: string
+    phone: string
+    company?: string
+    cnpj?: string
+    volume?: string
+    message?: string
+  }) {
+    return await pb.send<{
+      success: boolean
+      message: string
+      lead_id?: string
+    }>('/backend/v1/leads', {
+      method: 'POST',
+      body: data,
+    })
+  },
+}

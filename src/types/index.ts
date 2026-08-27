@@ -27,6 +27,8 @@ export type NfeProvider = 'nuvem_fiscal' | 'focus_nfe' | 'nota_facil' | 'e_notas
 
 export type UserRole = 'admin' | 'member'
 
+export type PlanType = 'gratis' | 'essencial' | 'profissional' | 'enterprise'
+
 export interface TenantRecord {
   id: string
   name: string
@@ -36,8 +38,36 @@ export interface TenantRecord {
   phone?: string
   address?: string
   logo?: string
+  plan?: PlanType
   created: string
   updated: string
+}
+
+export type LeadVolume = 'ate_50' | '50_200' | '200_500' | '500_mais'
+export type LeadStatus = 'novo' | 'em_contato' | 'convertido' | 'descartado'
+
+export interface LeadRecord {
+  id: string
+  name: string
+  email: string
+  phone: string
+  company?: string
+  cnpj?: string
+  volume?: LeadVolume
+  message?: string
+  status: LeadStatus
+  created: string
+  updated: string
+}
+
+export interface LeadPayload {
+  name: string
+  email: string
+  phone: string
+  company?: string
+  cnpj?: string
+  volume?: LeadVolume
+  message?: string
 }
 
 export interface UserRecord {

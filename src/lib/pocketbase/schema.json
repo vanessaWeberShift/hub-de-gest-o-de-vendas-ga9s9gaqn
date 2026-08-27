@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T13:11:19.416Z",
+  "generatedAt": "2026-08-27T19:06:37.273Z",
   "collections": [
     {
       "name": "users",
@@ -124,6 +124,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "plan",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["gratis", "essencial", "profissional", "enterprise"]
         }
       ],
       "indexes": ["CREATE INDEX idx_tenants_created ON tenants (created DESC)"]
@@ -717,6 +724,87 @@
         }
       ],
       "indexes": ["CREATE UNIQUE INDEX idx_nfe_settings_tenant ON nfe_settings (tenant)"]
+    },
+    {
+      "name": "leads",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "email",
+          "type": "email",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "phone",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "company",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cnpj",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "volume",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["ate_50", "50_200", "200_500", "500_mais"]
+        },
+        {
+          "name": "message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["novo", "em_contato", "convertido", "descartado"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_leads_created ON leads (created DESC)",
+        "CREATE INDEX idx_leads_status ON leads (status)"
+      ]
     }
   ]
 }

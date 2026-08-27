@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { AppLayout } from '@/components/AppLayout'
 import { Login } from '@/pages/Login'
 import { Register } from '@/pages/Register'
+import { LandingPage } from '@/pages/LandingPage'
 import { Dashboard } from '@/pages/Dashboard'
 import { Orders } from '@/pages/Orders'
 import { Products } from '@/pages/Products'
@@ -58,6 +59,12 @@ const App: React.FC = () => (
         <Toaster />
         <Sonner />
         <Routes>
+          {/* Public Landing Page & Ancillary Anchored Routes */}
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/planos" element={<LandingPage />} />
+          <Route path="/faq" element={<LandingPage />} />
+          <Route path="/contato" element={<LandingPage />} />
+
           {/* Public Auth Routes */}
           <Route
             path="/login"
@@ -76,7 +83,7 @@ const App: React.FC = () => (
             }
           />
 
-          {/* Protected App Routes */}
+          {/* Protected Hub Routes */}
           <Route
             element={
               <ProtectedRoute>
@@ -84,7 +91,6 @@ const App: React.FC = () => (
               </ProtectedRoute>
             }
           >
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/products" element={<Products />} />
