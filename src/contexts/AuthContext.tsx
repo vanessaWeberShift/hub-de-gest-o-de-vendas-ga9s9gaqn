@@ -10,7 +10,7 @@ interface AuthContextType {
   login: (email: string, pass: string) => Promise<void>
   logout: () => void
   registerTenantAndUser: (
-    companyData: { name: string; cnpj: string; ie: string; plan?: string },
+    companyData: { name: string; cnpj: string; ie: string; phone?: string; plan?: string },
     userData: { name: string; email: string; pass: string },
   ) => Promise<void>
   refreshAuth: () => Promise<void>
@@ -95,7 +95,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   const registerTenantAndUser = async (
-    companyData: { name: string; cnpj: string; ie: string; plan?: string },
+    companyData: { name: string; cnpj: string; ie: string; phone?: string; plan?: string },
     userData: { name: string; email: string; pass: string },
   ) => {
     // 1. Create Tenant first
@@ -103,6 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       name: companyData.name,
       cnpj: companyData.cnpj,
       ie: companyData.ie,
+      phone: companyData.phone || '',
       email: userData.email,
       plan: (companyData.plan as any) || 'gratis',
     })
