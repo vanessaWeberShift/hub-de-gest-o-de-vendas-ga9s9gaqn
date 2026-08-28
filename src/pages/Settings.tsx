@@ -4,20 +4,33 @@ import {
   FileText,
   Users,
   Store,
+  CreditCard,
   CheckCircle2,
   AlertTriangle,
   ShieldCheck,
-  Upload,
   Save,
   UserPlus,
   Trash2,
   ExternalLink,
-  Lock,
   RefreshCw,
+  Sparkles,
+  Calendar,
+  AlertCircle,
+  Zap,
+  Clock,
+  ArrowUpRight,
+  Receipt,
+  XCircle,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { settingsService, invoicesService } from '@/services/api'
-import { NfeSettingsRecord, NfeProvider, NfeEnvironment } from '@/types'
+import { settingsService, invoicesService, billingService } from '@/services/api'
+import {
+  NfeSettingsRecord,
+  NfeProvider,
+  NfeEnvironment,
+  SubscriptionPaymentRecord,
+  PlanType,
+} from '@/types'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
 import {
@@ -37,9 +50,9 @@ export const Settings: React.FC = () => {
   const { tenant, refreshAuth } = useAuth()
   const { toast } = useToast()
 
-  const [activeTab, setActiveTab] = useState<'empresa' | 'nfe' | 'equipe' | 'integracoes'>(
-    'empresa',
-  )
+  const [activeTab, setActiveTab] = useState<
+    'faturamento' | 'empresa' | 'nfe' | 'equipe' | 'integracoes'
+  >('faturamento')
   const [loading, setLoading] = useState(true)
 
   // Tab Empresa state
@@ -88,6 +101,30 @@ export const Settings: React.FC = () => {
   const [inviteRole, setInviteRole] = useState<'admin' | 'member'>('member')
   const [isInviting, setIsInviting] = useState(false)
 
+  // Tab Faturamento & Assinatura (Mercado Pago)
+  const [paymentsList, setPaymentsList] = useState<SubscriptionPaymentRecord[]>([])
+  const [isChangingPlan, setIsChangingPlan] = useState(false)
+  const [selectedChangePlan, setSelectedChangePlan] = useState<PlanType>('profissional')
+  const [changeBillingCycle, setChangeBillingCycle] = useState<'monthly' | 'annual'>('monthly')
+  const [showPlanModal, setShowPlanModal] = useState(false)
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [isCanceling, setIsCanceling] = useState(false)
+  const [mpConfig, setMpConfig] = useState<{
+    publicKey: string
+    isConfigured: boolean
+    mode: 'production' | 'simulated'
+  }>({
+    publicKey: '',
+    isConfigured: false,
+    mode: 'simulated',
+  })
+
+  // New card inputs for change plan if updating card
+  const [changeCardNumber, setChangeCardNumber] = useState('')
+  const [changeCardHolder, setChangeCardHolder] = useState('')
+  const [changeCardExpiry, setChangeCardExpiry] = useState('')
+  const [changeCardCvv, setChangeCardCvv] = useState('')
+
   useEffect(() => {
     if (!tenant?.id) return
 
@@ -98,27 +135,25 @@ export const Settings: React.FC = () => {
     setEmail(tenant.email || '')
     setPhone(tenant.phone ? formatPhoneMask(tenant.phone) : '')
     setAddress(tenant.address || '')
+    if (tenant.plan) setSelectedChangePlan(tenant.plan)
+    if (tenant.billing_cycle) setChangeBillingCycle(tenant.billing_cycle)
 
-    // Tentar detectar UF inicial a partir do CNPJ ou endereço
     if (formattedCnpj) {
       const derived = deriveUfFromCnpj(formattedCnpj)
-      if (derived) {
-        setUf(derived)
-      }
-    }
-    if (tenant.address) {
-      // Checar se há indicação de UF como "- SP" ou "SP"
-      const match = tenant.address.match(/(?:-\s*|\s+)([A-Z]{2})(?:,|$)/)
-      if (match && BRAZILIAN_UFS.some((u) => u.uf === match[1])) {
-        setUf(match[1] as BrazilianUF)
-      }
+      if (derived) setUf(derived)
     }
 
     const loadSettingsData = async () => {
       try {
-        const [nfeSett, membersList] = await Promise.all([
+        const [nfeSett, membersList, payments, mpConf] = await Promise.all([
           settingsService.getNfeSettings(tenant.id),
           settingsService.listMembers(tenant.id),
+          billingService.listPayments(tenant.id),
+          billingService.getConfig().catch(() => ({
+            publicKey: '',
+            isConfigured: false,
+            mode: 'simulated' as const,
+          })),
         ])
 
         if (nfeSett) {
@@ -130,6 +165,12 @@ export const Settings: React.FC = () => {
           setNfeWebhookUrl(nfeSett.webhook_url || '')
         }
         setMembers(membersList)
+        setPaymentsList(payments as any)
+        setMpConfig({
+          publicKey: mpConf.publicKey,
+          isConfigured: mpConf.isConfigured,
+          mode: mpConf.mode as any,
+        })
       } catch (err) {
         console.error('Erro ao carregar configurações', err)
       } finally {
@@ -138,11 +179,11 @@ export const Settings: React.FC = () => {
     }
 
     loadSettingsData()
-  }, [tenant?.id])
+  }, [tenant?.id, tenant?.plan, tenant?.billing_cycle])
 
   // Validation field handler for Empresa
   const validateEmpresaField = (name: string, value: string, extra?: any) => {
-    let newErrors = { ...errorsEmpresa }
+    const newErrors = { ...errorsEmpresa }
 
     switch (name) {
       case 'companyName':
@@ -218,20 +259,15 @@ export const Settings: React.FC = () => {
   const handleCnpjChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatCnpjMask(e.target.value)
     setCnpj(formatted)
-    if (touchedEmpresa.cnpj) {
-      validateEmpresaField('cnpj', formatted)
-    }
+    if (touchedEmpresa.cnpj) validateEmpresaField('cnpj', formatted)
 
-    // Auto-detect UF from CNPJ
     const clean = formatted.replace(/[./\-\s]/g, '')
     if (clean.length >= 8) {
       const derived = deriveUfFromCnpj(formatted)
       if (derived) {
         setUf(derived)
         setIsUfAutoDetected(true)
-        if (ie && touchedEmpresa.ie) {
-          validateEmpresaField('ie', ie, { uf: derived })
-        }
+        if (ie && touchedEmpresa.ie) validateEmpresaField('ie', ie, { uf: derived })
       }
 
       if (clean.length === 14 && validateCNPJ(formatted).isValid) {
@@ -239,9 +275,7 @@ export const Settings: React.FC = () => {
           if (data?.uf) {
             setUf(data.uf)
             setIsUfAutoDetected(true)
-            if (ie && touchedEmpresa.ie) {
-              validateEmpresaField('ie', ie, { uf: data.uf })
-            }
+            if (ie && touchedEmpresa.ie) validateEmpresaField('ie', ie, { uf: data.uf })
           }
           if (data?.razaoSocial && !companyName) {
             setCompanyName(data.razaoSocial)
@@ -254,26 +288,20 @@ export const Settings: React.FC = () => {
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatPhoneMask(e.target.value)
     setPhone(formatted)
-    if (touchedEmpresa.phone) {
-      validateEmpresaField('phone', formatted)
-    }
+    if (touchedEmpresa.phone) validateEmpresaField('phone', formatted)
   }
 
   const handleIeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.toUpperCase()
     setIe(val)
-    if (touchedEmpresa.ie) {
-      validateEmpresaField('ie', val, { uf })
-    }
+    if (touchedEmpresa.ie) validateEmpresaField('ie', val, { uf })
   }
 
   const handleUfChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newUf = e.target.value as BrazilianUF
     setUf(newUf)
     setIsUfAutoDetected(false)
-    if (ie && touchedEmpresa.ie) {
-      validateEmpresaField('ie', ie, { uf: newUf })
-    }
+    if (ie && touchedEmpresa.ie) validateEmpresaField('ie', ie, { uf: newUf })
   }
 
   const handleBlurEmpresa = (field: keyof typeof touchedEmpresa) => {
@@ -297,7 +325,7 @@ export const Settings: React.FC = () => {
     }
   }
 
-  // Save Empresa with complete validation
+  // Save Empresa
   const handleSaveEmpresa = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!tenant?.id) return
@@ -311,45 +339,29 @@ export const Settings: React.FC = () => {
     })
 
     const validationErrors: typeof errorsEmpresa = {}
-
-    if (!companyName.trim()) {
+    if (!companyName.trim())
       validationErrors.companyName = 'Razão Social ou Nome Fantasia é obrigatório.'
-    } else if (companyName.trim().length < 3) {
-      validationErrors.companyName = 'Informe pelo menos 3 caracteres.'
-    }
-
     if (!cnpj.trim()) {
       validationErrors.cnpj = 'CNPJ da empresa é obrigatório.'
     } else {
       const cnpjRes = validateCNPJ(cnpj)
-      if (!cnpjRes.isValid) {
-        validationErrors.cnpj = cnpjRes.message || 'CNPJ inválido.'
-      }
+      if (!cnpjRes.isValid) validationErrors.cnpj = cnpjRes.message || 'CNPJ inválido.'
     }
-
     if (ie.trim()) {
       const ieRes = validateInscricaoEstadual(ie, uf)
-      if (!ieRes.isValid) {
-        validationErrors.ie = ieRes.message || 'Inscrição Estadual inválida para a UF selecionada.'
-      }
+      if (!ieRes.isValid)
+        validationErrors.ie = ieRes.message || 'Inscrição Estadual inválida para a UF.'
     }
-
     if (email.trim()) {
       const emailRes = validateEmail(email)
-      if (!emailRes.isValid) {
-        validationErrors.email = emailRes.message || 'E-mail inválido.'
-      }
+      if (!emailRes.isValid) validationErrors.email = emailRes.message || 'E-mail inválido.'
     }
-
     if (phone.trim()) {
       const phoneRes = validatePhone(phone, false)
-      if (!phoneRes.isValid) {
-        validationErrors.phone = phoneRes.message || 'Telefone inválido.'
-      }
+      if (!phoneRes.isValid) validationErrors.phone = phoneRes.message || 'Telefone inválido.'
     }
 
     setErrorsEmpresa(validationErrors)
-
     if (Object.keys(validationErrors).length > 0) {
       toast({
         variant: 'destructive',
@@ -439,6 +451,77 @@ export const Settings: React.FC = () => {
     }
   }
 
+  // Change Plan Action
+  const handleChangePlanSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!tenant?.id) return
+
+    setIsChangingPlan(true)
+    try {
+      let cardLast4 = tenant.card_last4
+      let cardBrand = tenant.card_brand
+      let cardHolder = tenant.card_holder_name
+
+      if (changeCardNumber.trim()) {
+        const cleanDigits = changeCardNumber.replace(/\D/g, '')
+        cardLast4 = cleanDigits.slice(-4)
+        cardBrand = 'visa'
+        cardHolder = changeCardHolder.trim() || tenant.name
+      }
+
+      const res = await billingService.changePlan({
+        tenantId: tenant.id,
+        newPlan: selectedChangePlan,
+        billingCycle: changeBillingCycle,
+        cardToken: changeCardNumber ? `tok_mp_${Date.now()}` : undefined,
+        cardHolderName: cardHolder,
+        cardLast4: cardLast4,
+        cardBrand: cardBrand,
+      })
+
+      toast({
+        title: 'Plano atualizado com sucesso!',
+        description: res.message,
+      })
+
+      setShowPlanModal(false)
+      await refreshAuth()
+      const updatedPayments = await billingService.listPayments(tenant.id)
+      setPaymentsList(updatedPayments as any)
+    } catch (err: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao alterar plano',
+        description: err?.message || 'Não foi possível alterar o plano no gateway.',
+      })
+    } finally {
+      setIsChangingPlan(false)
+    }
+  }
+
+  // Cancel Subscription Action
+  const handleCancelSubscription = async () => {
+    if (!tenant?.id) return
+    setIsCanceling(true)
+    try {
+      const res = await billingService.cancelSubscription(tenant.id)
+      toast({
+        title: 'Assinatura cancelada',
+        description: res.message,
+      })
+      setShowCancelModal(false)
+      await refreshAuth()
+    } catch (err: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao cancelar',
+        description: err?.message,
+      })
+    } finally {
+      setIsCanceling(false)
+    }
+  }
+
   // Invite Member
   const handleInviteMember = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -484,21 +567,92 @@ export const Settings: React.FC = () => {
     }
   }
 
+  // Status Badge Helper
+  const renderSubscriptionStatusBadge = () => {
+    const status = tenant?.subscription_status || (tenant?.plan === 'gratis' ? 'free' : 'active')
+    switch (status) {
+      case 'trial':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+            <Clock className="h-3.5 w-3.5 text-amber-600 animate-pulse" />
+            <span>Período de Teste Grátis (5 Dias)</span>
+          </span>
+        )
+      case 'active':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+            <span>Assinatura Ativa (Em dia)</span>
+          </span>
+        )
+      case 'free':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
+            <Sparkles className="h-3.5 w-3.5 text-slate-500" />
+            <span>Plano Grátis</span>
+          </span>
+        )
+      case 'past_due':
+      case 'unpaid':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200">
+            <AlertTriangle className="h-3.5 w-3.5 text-rose-600" />
+            <span>Pagamento Pendente / Atrasado</span>
+          </span>
+        )
+      case 'canceled':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-rose-700 border border-slate-300">
+            <XCircle className="h-3.5 w-3.5 text-rose-600" />
+            <span>Assinatura Cancelada</span>
+          </span>
+        )
+      default:
+        return null
+    }
+  }
+
+  const currentPlanName = {
+    gratis: 'Plano Grátis',
+    essencial: 'Plano Essencial (R$ 97/mês)',
+    profissional: 'Plano Profissional (R$ 197/mês)',
+    enterprise: 'Plano Enterprise (R$ 397/mês)',
+  }[tenant?.plan || 'gratis']
+
+  const planPrices: Record<string, { monthly: number; annual: number }> = {
+    gratis: { monthly: 0, annual: 0 },
+    essencial: { monthly: 97, annual: 77 },
+    profissional: { monthly: 197, annual: 157 },
+    enterprise: { monthly: 397, annual: 317 },
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Configurações Gerais</h1>
         <p className="text-xs text-slate-500 mt-0.5">
-          Gestão do tenant, provedor fiscal SEFAZ, equipe de operadores e integrações
+          Gestão de faturamento, gateway Mercado Pago, dados cadastrais e SEFAZ
         </p>
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 overflow-x-auto">
+        <button
+          onClick={() => setActiveTab('faturamento')}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+            activeTab === 'faturamento'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <CreditCard className="h-4 w-4" />
+          <span>Faturamento & Assinatura</span>
+        </button>
+
         <button
           onClick={() => setActiveTab('empresa')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
             activeTab === 'empresa'
               ? 'bg-slate-900 text-white shadow-sm'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -510,7 +664,7 @@ export const Settings: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('nfe')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
             activeTab === 'nfe'
               ? 'bg-slate-900 text-white shadow-sm'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -522,7 +676,7 @@ export const Settings: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('equipe')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
             activeTab === 'equipe'
               ? 'bg-slate-900 text-white shadow-sm'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -534,16 +688,364 @@ export const Settings: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('integracoes')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
             activeTab === 'integracoes'
               ? 'bg-slate-900 text-white shadow-sm'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
           <Store className="h-4 w-4" />
-          <span>Guia de Integrações</span>
+          <span>Guia de Canais</span>
         </button>
       </div>
+
+      {/* TAB 0: Faturamento & Assinatura (Mercado Pago) */}
+      {activeTab === 'faturamento' && (
+        <div className="space-y-6 max-w-4xl">
+          {/* Main Plan Overview Card */}
+          <div className="bg-white p-6 sm:p-7 rounded-2xl border border-[#E7EAEF] shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
+                    {currentPlanName}
+                  </h2>
+                  {renderSubscriptionStatusBadge()}
+                </div>
+                <p className="text-xs text-slate-500">
+                  Cobrança recorrente automatizada via gateway <b>Mercado Pago</b>
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <Button
+                  onClick={() => setShowPlanModal(true)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl h-10 px-4 shadow-sm"
+                >
+                  <ArrowUpRight className="h-4 w-4 mr-1.5" />
+                  <span>Alterar Plano</span>
+                </Button>
+
+                {tenant?.subscription_status !== 'canceled' && tenant?.plan !== 'gratis' && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowCancelModal(true)}
+                    className="border-slate-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 text-xs font-semibold rounded-xl h-10 px-4"
+                  >
+                    Cancelar
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Status & Billing Details Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-6">
+              {/* Box 1: Próxima Cobrança */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                  Próxima Cobrança / Renovação
+                </span>
+                <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
+                  <Calendar className="h-4 w-4 text-emerald-600 shrink-0" />
+                  <span>
+                    {tenant?.next_billing_date
+                      ? new Date(tenant.next_billing_date).toLocaleDateString('pt-BR', {
+                          day: '2-digit',
+                          month: 'long',
+                          year: 'numeric',
+                        })
+                      : 'Sem cobrança agendada'}
+                  </span>
+                </div>
+                {tenant?.subscription_status === 'trial' && (
+                  <p className="text-[11px] text-emerald-700 font-medium mt-1">
+                    🎉 Teste grátis ativo até{' '}
+                    {tenant?.trial_ends_at
+                      ? new Date(tenant.trial_ends_at).toLocaleDateString('pt-BR')
+                      : '5 dias'}
+                  </p>
+                )}
+              </div>
+
+              {/* Box 2: Cartão Cadastrado */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                  Cartão para Cobrança Automática
+                </span>
+                <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
+                  <CreditCard className="h-4 w-4 text-emerald-600 shrink-0" />
+                  <span>
+                    {tenant?.card_last4
+                      ? `•••• •••• •••• ${tenant.card_last4} (${(tenant.card_brand || 'visa').toUpperCase()})`
+                      : 'Nenhum cartão cadastrado'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Titular: {tenant?.card_holder_name || tenant?.name || 'Administrador'}
+                </p>
+              </div>
+
+              {/* Box 3: Ciclo & Desconto */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                  Ciclo de Faturamento
+                </span>
+                <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
+                  <Zap className="h-4 w-4 text-emerald-600 shrink-0" />
+                  <span>
+                    {tenant?.billing_cycle === 'annual'
+                      ? 'Faturamento Anual (20% OFF)'
+                      : 'Faturamento Mensal'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  {mpConfig.isConfigured
+                    ? 'Gateway Mercado Pago Conectado (Produção)'
+                    : 'Modo Simulado Ativo (Demonstração)'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Payment / Invoice History */}
+          <div className="bg-white rounded-2xl border border-[#E7EAEF] shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Histórico de Faturas & Pagamentos
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Comprovantes e registros de cobrança gerados pela sua assinatura
+                </p>
+              </div>
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">
+                {paymentsList.length} registro(s)
+              </span>
+            </div>
+
+            {paymentsList.length > 0 ? (
+              <div className="divide-y divide-slate-100">
+                {paymentsList.map((p) => (
+                  <div
+                    key={p.id}
+                    className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
+                          p.status === 'approved'
+                            ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                            : p.status === 'trial'
+                              ? 'bg-sky-50 text-sky-600 border border-sky-200'
+                              : 'bg-rose-50 text-rose-600 border border-rose-200'
+                        }`}
+                      >
+                        <Receipt className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-900">
+                          {p.description ||
+                            `Assinatura Plano ${(p.plan || 'Essencial').toUpperCase()}`}
+                        </p>
+                        <p className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
+                          <span>
+                            {p.payment_date
+                              ? new Date(p.payment_date).toLocaleDateString('pt-BR', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : 'Data recente'}
+                          </span>
+                          <span>•</span>
+                          <span>Cartão final {p.card_last4 || tenant?.card_last4 || '4242'}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between sm:justify-end gap-4">
+                      <div className="text-right">
+                        <p className="text-sm font-black text-slate-900">
+                          {p.status === 'trial' ? 'R$ 0,00' : `R$ ${(p.amount || 0).toFixed(2)}`}
+                        </p>
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                            p.status === 'approved'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : p.status === 'trial'
+                                ? 'bg-sky-100 text-sky-800'
+                                : 'bg-rose-100 text-rose-800'
+                          }`}
+                        >
+                          {p.status === 'approved'
+                            ? 'Pago'
+                            : p.status === 'trial'
+                              ? '5d Grátis'
+                              : 'Pendente'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-8 text-center text-xs text-slate-500">
+                <CreditCard className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                <p className="font-semibold text-slate-700">Nenhuma fatura registrada ainda</p>
+                <p className="text-slate-400 mt-1">
+                  Seu período de teste de 5 dias está ativo e a primeira cobrança ocorrerá após o
+                  término.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Alterar Plano (Upgrade / Downgrade) */}
+      {showPlanModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 sm:p-7 max-w-xl w-full border border-slate-100 relative">
+            <h3 className="text-lg font-bold text-slate-900 mb-1">Alterar Plano de Assinatura</h3>
+            <p className="text-xs text-slate-500 mb-5">
+              Escolha o novo plano para atualizar os limites de emissão de NF-e e canais do Mercado
+              Pago.
+            </p>
+
+            <form onSubmit={handleChangePlanSubmit} className="space-y-4">
+              {/* Billing Cycle Toggle */}
+              <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setChangeBillingCycle('monthly')}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    changeBillingCycle === 'monthly'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Cobrança Mensal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChangeBillingCycle('annual')}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                    changeBillingCycle === 'annual'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>Cobrança Anual</span>
+                  <span className="text-[10px] bg-emerald-500/20 px-1.5 py-0.2 rounded font-black text-emerald-100">
+                    -20%
+                  </span>
+                </button>
+              </div>
+
+              {/* Plans Radio Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {[
+                  { id: 'essencial', name: 'Essencial', m: 97, a: 77, nfe: '100 NF-e/mês' },
+                  { id: 'profissional', name: 'Profissional', m: 197, a: 157, nfe: '500 NF-e/mês' },
+                  { id: 'enterprise', name: 'Enterprise', m: 397, a: 317, nfe: 'NF-e Ilimitadas' },
+                ].map((item) => {
+                  const price = changeBillingCycle === 'annual' ? item.a : item.m
+                  const isSelected = selectedChangePlan === item.id
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => setSelectedChangePlan(item.id as PlanType)}
+                      className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+                        isSelected
+                          ? 'border-emerald-600 bg-emerald-50/40 shadow-sm'
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-slate-900">{item.name}</span>
+                        {isSelected && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+                      </div>
+                      <p className="text-lg font-black text-slate-900">
+                        R$ {price}
+                        <span className="text-[10px] font-normal text-slate-500">/mês</span>
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-1">{item.nfe}</p>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Card to use */}
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-700">Forma de Pagamento:</span>
+                  <span className="text-slate-500">
+                    Cartão cadastrado (final {tenant?.card_last4 || '4242'})
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  A cobrança do novo plano será processada automaticamente via Mercado Pago na data
+                  de renovação.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowPlanModal(false)}
+                  className="text-xs border-slate-300"
+                >
+                  Voltar
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isChangingPlan}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+                >
+                  {isChangingPlan ? 'Atualizando...' : 'Confirmar Alteração de Plano'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Cancelar Assinatura */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full border border-slate-100">
+            <div className="flex items-center gap-2.5 text-rose-600 mb-3">
+              <AlertTriangle className="h-5 w-5" />
+              <h3 className="text-base font-bold text-slate-900">Deseja cancelar a assinatura?</h3>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed mb-4">
+              Ao cancelar, nenhuma cobrança futura será realizada no seu cartão no Mercado Pago. O
+              acesso às funcionalidades continuará ativo até o final do período vigente.
+            </p>
+            <div className="flex items-center justify-end gap-2.5">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowCancelModal(false)}
+                className="text-xs"
+              >
+                Manter Assinatura
+              </Button>
+              <Button
+                type="button"
+                onClick={handleCancelSubscription}
+                disabled={isCanceling}
+                className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold"
+              >
+                {isCanceling ? 'Cancelando...' : 'Sim, Cancelar Assinatura'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* TAB 1: Empresa */}
       {activeTab === 'empresa' && (
@@ -931,7 +1433,6 @@ export const Settings: React.FC = () => {
       {/* TAB 3: Equipe */}
       {activeTab === 'equipe' && (
         <div className="space-y-6 max-w-3xl">
-          {/* Invite form */}
           <div className="bg-white p-6 rounded-2xl border border-[#E7EAEF] shadow-sm">
             <h2 className="text-base font-bold text-slate-900 mb-1">Convidar Membro / Operador</h2>
             <p className="text-xs text-slate-500 mb-4">
@@ -994,7 +1495,6 @@ export const Settings: React.FC = () => {
             </form>
           </div>
 
-          {/* Members Table */}
           <div className="bg-white rounded-2xl border border-[#E7EAEF] shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-100 font-bold text-slate-900 text-sm">
               Membros Ativos ({members.length})

@@ -249,3 +249,93 @@ export const leadsService = {
     })
   },
 }
+
+export const billingService = {
+  async getConfig() {
+    return await pb.send<{
+      publicKey: string
+      isConfigured: boolean
+      mode: 'production' | 'simulated'
+      trialDays: number
+      plans: {
+        id: string
+        name: string
+        monthlyPrice: number
+        annualPriceMonthly: number
+        annualTotal?: number
+        trialDays: number
+        requiresCard: boolean
+      }[]
+    }>('/backend/v1/mercadopago/config', {
+      method: 'GET',
+    })
+  },
+
+  async subscribe(payload: {
+    plan: string
+    billingCycle?: 'monthly' | 'annual'
+    email: string
+    cardToken?: string
+    cardHolderName?: string
+    cardLast4?: string
+    cardBrand?: string
+    tenantId?: string
+  }) {
+    return await pb.send<{
+      success?: boolean
+      status: string
+      preapprovalId?: string
+      trialEndsAt?: string
+      nextBillingDate?: string
+      mode: string
+      message: string
+      plan?: string
+    }>('/backend/v1/mercadopago/subscribe', {
+      method: 'POST',
+      body: payload,
+    })
+  },
+
+  async changePlan(payload: {
+    tenantId: string
+    newPlan: string
+    billingCycle?: 'monthly' | 'annual'
+    cardToken?: string
+    cardHolderName?: string
+    cardLast4?: string
+    cardBrand?: string
+  }) {
+    return await pb.send<{
+      success: boolean
+      message: string
+      plan: string
+      billingCycle?: string
+      status: string
+      nextBillingDate?: string
+    }>('/backend/v1/mercadopago/change-plan', {
+      method: 'POST',
+      body: payload,
+    })
+  },
+
+  async cancelSubscription(tenantId: string) {
+    return await pb.send<{
+      success: boolean
+      message: string
+    }>('/backend/v1/mercadopago/cancel', {
+      method: 'POST',
+      body: { tenantId },
+    })
+  },
+
+  async listPayments(tenantId: string) {
+    try {
+      return await pb.collection('subscription_payments').getFullList({
+        filter: `tenant = "${tenantId}"`,
+        sort: '-created',
+      })
+    } catch (_) {
+      return []
+    }
+  },
+}

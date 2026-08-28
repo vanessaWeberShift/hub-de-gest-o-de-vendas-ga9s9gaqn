@@ -10,7 +10,18 @@ interface AuthContextType {
   login: (email: string, pass: string) => Promise<void>
   logout: () => void
   registerTenantAndUser: (
-    companyData: { name: string; cnpj: string; ie: string; phone?: string; plan?: string },
+    companyData: {
+      name: string
+      cnpj: string
+      ie: string
+      phone?: string
+      plan?: string
+      billingCycle?: 'monthly' | 'annual'
+      cardToken?: string
+      cardHolderName?: string
+      cardLast4?: string
+      cardBrand?: string
+    },
     userData: { name: string; email: string; pass: string },
   ) => Promise<void>
   refreshAuth: () => Promise<void>
@@ -95,9 +106,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   const registerTenantAndUser = async (
-    companyData: { name: string; cnpj: string; ie: string; phone?: string; plan?: string },
+    companyData: {
+      name: string
+      cnpj: string
+      ie: string
+      phone?: string
+      plan?: string
+      billingCycle?: 'monthly' | 'annual'
+      cardToken?: string
+      cardHolderName?: string
+      cardLast4?: string
+      cardBrand?: string
+    },
     userData: { name: string; email: string; pass: string },
   ) => {
+    const plan = companyData.plan || 'gratis'
+    const isFree = plan === 'gratis'
+    const now = new Date()
+    const trialEnds = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000)
+    const nextBillingDateIso = trialEnds.toISOString().replace('T', ' ').slice(0, 19)
+
     // 1. Create Tenant first
     const newTenant = await pb.collection('tenants').create<TenantRecord>({
       name: companyData.name,
@@ -105,7 +133,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ie: companyData.ie,
       phone: companyData.phone || '',
       email: userData.email,
-      plan: (companyData.plan as any) || 'gratis',
+      plan: plan as any,
+      billing_cycle: companyData.billingCycle || 'monthly',
+      subscription_status: isFree ? 'free' : 'trial',
+      trial_ends_at: isFree ? undefined : nextBillingDateIso,
+      next_billing_date: isFree ? undefined : nextBillingDateIso,
+      card_last4: companyData.cardLast4 || (isFree ? undefined : '4242'),
+      card_brand: companyData.cardBrand || (isFree ? undefined : 'visa'),
+      card_holder_name: companyData.cardHolderName || userData.name,
     })
 
     // 2. Create User linked to Tenant
@@ -132,6 +167,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // 4. Authenticate user
     await pb.collection('users').authWithPassword(userData.email, userData.pass)
+
+    // 5. Call Mercado Pago subscribe hook if paid plan
+    if (!isFree) {
+      try {
+        const { billingService } = await import('@/services/api')
+        await billingService.subscribe({
+          tenantId: newTenant.id,
+          plan: plan,
+          billingCycle: companyData.billingCycle || 'monthly',
+          email: userData.email,
+          cardToken: companyData.cardToken || 'tok_demo_4242',
+          cardHolderName: companyData.cardHolderName || userData.name,
+          cardLast4: companyData.cardLast4 || '4242',
+          cardBrand: companyData.cardBrand || 'visa',
+        })
+      } catch (e) {
+        console.warn('Subscription registration notification note:', e)
+      }
+    }
+
     await refreshAuth()
   }
 

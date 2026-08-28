@@ -46,6 +46,7 @@ const PLANS: PricingPlan[] = [
   {
     id: 'essencial',
     name: 'Plano Essencial',
+    badge: '5 Dias Grátis',
     popular: false,
     description: 'Ideal para vendedores individuais e pequenas operações em crescimento.',
     monthlyPrice: 97,
@@ -54,6 +55,7 @@ const PLANS: PricingPlan[] = [
     nfeLimit: '100 NF-e / mês',
     support: 'Suporte por e-mail em até 24h',
     features: [
+      '5 dias grátis com cartão cadastrado',
       'Conexão de até 3 marketplaces',
       'Até 100 notas fiscais / mês',
       'Suporte ágil por e-mail',
@@ -61,14 +63,14 @@ const PLANS: PricingPlan[] = [
       'Armazenamento de XML/DANFE por 5 anos',
       'Ambiente Homologação & Produção',
     ],
-    buttonText: 'Assinar Essencial',
+    buttonText: 'Testar 5 Dias Grátis',
     buttonLink: '/register?plano=essencial',
     buttonVariant: 'outline',
   },
   {
     id: 'profissional',
     name: 'Plano Profissional',
-    badge: 'Mais popular',
+    badge: '5 Dias Grátis • Mais popular',
     popular: true,
     description: 'Para lojistas e e-commerces que precisam de escala, velocidade e suporte vip.',
     monthlyPrice: 197,
@@ -77,6 +79,7 @@ const PLANS: PricingPlan[] = [
     nfeLimit: '500 NF-e / mês',
     support: 'Suporte prioritário WhatsApp + Email',
     features: [
+      '5 dias grátis com cartão cadastrado',
       'Todos os marketplaces liberados',
       'Até 500 notas fiscais / mês',
       'Suporte prioritário via WhatsApp',
@@ -85,14 +88,14 @@ const PLANS: PricingPlan[] = [
       'Emissão de notas fiscais em lote',
       'Atualização de estoque instantânea',
     ],
-    buttonText: 'Assinar Pro',
+    buttonText: 'Testar 5 Dias Grátis',
     buttonLink: '/register?plano=profissional',
     buttonVariant: 'emerald',
   },
   {
     id: 'enterprise',
     name: 'Plano Enterprise',
-    badge: 'Sob Demanda',
+    badge: '5 Dias Grátis',
     popular: false,
     description: 'Para grandes distribuidores e marcas com alto volume de vendas diárias.',
     monthlyPrice: 397,
@@ -101,6 +104,7 @@ const PLANS: PricingPlan[] = [
     nfeLimit: 'NF-e ilimitadas',
     support: 'Gerente de contas dedicado',
     features: [
+      '5 dias grátis com cartão cadastrado',
       'Marketplaces ilimitados',
       'NF-e ilimitadas (sem custo extra por nota)',
       'Suporte dedicado com SLA garantido',
@@ -108,8 +112,8 @@ const PLANS: PricingPlan[] = [
       'API REST completa para ERPs e WMS',
       'Treinamento de equipe e onboarding VIP',
     ],
-    buttonText: 'Falar com consultor',
-    buttonLink: '#contato',
+    buttonText: 'Testar 5 Dias Grátis',
+    buttonLink: '/register?plano=enterprise',
     buttonVariant: 'outline',
   },
 ]
@@ -221,7 +225,12 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ onContactClick }
                     </div>
                     {isAnnual && !isFree && (
                       <p className="text-[11px] text-emerald-600 font-semibold mt-1">
-                        Cobrado anualmente (R$ {price * 12}/ano)
+                        Cobrado anualmente (R$ {price * 12}/ano) • 5 dias grátis
+                      </p>
+                    )}
+                    {!isAnnual && !isFree && (
+                      <p className="text-[11px] text-emerald-600 font-semibold mt-1">
+                        5 dias de teste grátis com cartão
                       </p>
                     )}
                     {isFree && (
@@ -263,28 +272,20 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ onContactClick }
 
                 {/* Plan Button */}
                 <div className="pt-2">
-                  {plan.id === 'enterprise' ? (
+                  <Link
+                    to={`${plan.buttonLink}${isAnnual ? '&ciclo=annual' : '&ciclo=monthly'}`}
+                    className="block w-full"
+                  >
                     <Button
-                      type="button"
-                      variant="outline"
-                      onClick={onContactClick}
-                      className="w-full h-11 border-slate-300 hover:bg-slate-50 text-slate-800 font-bold text-xs rounded-xl"
+                      className={`w-full h-11 font-bold text-xs rounded-xl transition-all ${
+                        plan.popular
+                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md hover:shadow-lg'
+                          : 'border border-slate-200 bg-slate-900 hover:bg-slate-800 text-white'
+                      }`}
                     >
-                      {plan.buttonText}
+                      <span>{plan.buttonText}</span>
                     </Button>
-                  ) : (
-                    <Link to={plan.buttonLink} className="block w-full">
-                      <Button
-                        className={`w-full h-11 font-bold text-xs rounded-xl transition-all ${
-                          plan.popular
-                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md hover:shadow-lg'
-                            : 'border border-slate-200 bg-slate-900 hover:bg-slate-800 text-white'
-                        }`}
-                      >
-                        <span>{plan.buttonText}</span>
-                      </Button>
-                    </Link>
-                  )}
+                  </Link>
                 </div>
               </div>
             )

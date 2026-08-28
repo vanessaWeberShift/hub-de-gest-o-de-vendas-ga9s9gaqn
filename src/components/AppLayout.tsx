@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { OrderRecord, ProductRecord } from '@/types'
 import { OnboardingTriggerButton, OnboardingChecklist } from '@/components/OnboardingChecklist'
+import { SubscriptionGateModal } from '@/components/SubscriptionGateModal'
 
 export const AppLayout: React.FC = () => {
   const { user, tenant, tenantsList, logout, switchTenant, isLoading } = useAuth()
@@ -545,6 +546,9 @@ export const AppLayout: React.FC = () => {
         <main className="flex-1 p-4 sm:p-6 max-w-[1440px] w-full mx-auto">
           <Outlet />
         </main>
+
+        {/* Access Control Gate for expired trial / canceled / past_due */}
+        <SubscriptionGateModal />
 
         {/* Onboarding Modal Backdrop */}
         {onboardingModalOpen && (

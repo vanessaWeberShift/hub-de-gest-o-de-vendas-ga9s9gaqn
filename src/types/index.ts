@@ -29,6 +29,10 @@ export type UserRole = 'admin' | 'member'
 
 export type PlanType = 'gratis' | 'essencial' | 'profissional' | 'enterprise'
 
+export type SubscriptionStatus = 'trial' | 'active' | 'past_due' | 'canceled' | 'unpaid' | 'free'
+
+export type BillingCycle = 'monthly' | 'annual'
+
 export interface TenantRecord {
   id: string
   name: string
@@ -39,6 +43,34 @@ export interface TenantRecord {
   address?: string
   logo?: string
   plan?: PlanType
+  billing_cycle?: BillingCycle
+  subscription_status?: SubscriptionStatus
+  trial_ends_at?: string
+  next_billing_date?: string
+  mp_preapproval_id?: string
+  mp_customer_id?: string
+  card_last4?: string
+  card_brand?: string
+  card_holder_name?: string
+  canceled_at?: string
+  created: string
+  updated: string
+}
+
+export interface SubscriptionPaymentRecord {
+  id: string
+  tenant: string
+  mp_payment_id?: string
+  mp_preapproval_id?: string
+  amount: number
+  plan: PlanType
+  billing_cycle?: BillingCycle
+  status: 'approved' | 'pending' | 'rejected' | 'refunded' | 'trial'
+  description?: string
+  payment_date?: string
+  card_last4?: string
+  card_brand?: string
+  invoice_url?: string
   created: string
   updated: string
 }

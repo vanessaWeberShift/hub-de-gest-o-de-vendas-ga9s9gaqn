@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-28T14:17:50.559Z",
+  "generatedAt": "2026-08-28T15:05:17.270Z",
   "collections": [
     {
       "name": "users",
@@ -131,6 +131,68 @@
           "required": false,
           "system": false,
           "selectValues": ["gratis", "essencial", "profissional", "enterprise"]
+        },
+        {
+          "name": "billing_cycle",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["monthly", "annual"]
+        },
+        {
+          "name": "subscription_status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["trial", "active", "past_due", "canceled", "unpaid", "free"]
+        },
+        {
+          "name": "trial_ends_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "next_billing_date",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "mp_preapproval_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "mp_customer_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "card_last4",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "card_brand",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "card_holder_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "canceled_at",
+          "type": "date",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": ["CREATE INDEX idx_tenants_created ON tenants (created DESC)"]
@@ -804,6 +866,113 @@
       "indexes": [
         "CREATE INDEX idx_leads_created ON leads (created DESC)",
         "CREATE INDEX idx_leads_status ON leads (status)"
+      ]
+    },
+    {
+      "name": "subscription_payments",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && tenant = @request.auth.tenant",
+        "view": "@request.auth.id != '' && tenant = @request.auth.tenant",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != '' && tenant = @request.auth.tenant",
+        "delete": "@request.auth.id != '' && tenant = @request.auth.tenant"
+      },
+      "fields": [
+        {
+          "name": "tenant",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "tenants"
+        },
+        {
+          "name": "mp_payment_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "mp_preapproval_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "amount",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "plan",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["gratis", "essencial", "profissional", "enterprise"]
+        },
+        {
+          "name": "billing_cycle",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["monthly", "annual"]
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["approved", "pending", "rejected", "refunded", "trial"]
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "payment_date",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "card_last4",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "card_brand",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "invoice_url",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_sub_pay_tenant ON subscription_payments (tenant, created DESC)",
+        "CREATE INDEX idx_sub_pay_mp_id ON subscription_payments (mp_payment_id)"
       ]
     }
   ]
