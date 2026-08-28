@@ -20,6 +20,18 @@ import { settingsService, invoicesService } from '@/services/api'
 import { NfeSettingsRecord, NfeProvider, NfeEnvironment } from '@/types'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
+import {
+  validateCNPJ,
+  validateInscricaoEstadual,
+  validateEmail,
+  validatePhone,
+  formatCnpjMask,
+  formatPhoneMask,
+  deriveUfFromCnpj,
+  lookupCnpjData,
+  BRAZILIAN_UFS,
+  BrazilianUF,
+} from '@/lib/validators'
 
 export const Settings: React.FC = () => {
   const { tenant, refreshAuth } = useAuth()
@@ -33,11 +45,30 @@ export const Settings: React.FC = () => {
   // Tab Empresa state
   const [companyName, setCompanyName] = useState('')
   const [cnpj, setCnpj] = useState('')
+  const [uf, setUf] = useState<BrazilianUF | ''>('SP')
+  const [isUfAutoDetected, setIsUfAutoDetected] = useState(false)
   const [ie, setIe] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [address, setAddress] = useState('')
   const [isSavingEmpresa, setIsSavingEmpresa] = useState(false)
+
+  // Validation errors & touched map for Empresa
+  const [errorsEmpresa, setErrorsEmpresa] = useState<{
+    companyName?: string
+    cnpj?: string
+    ie?: string
+    email?: string
+    phone?: string
+  }>({})
+
+  const [touchedEmpresa, setTouchedEmpresa] = useState<{
+    companyName?: boolean
+    cnpj?: boolean
+    ie?: boolean
+    email?: boolean
+    phone?: boolean
+  }>({})
 
   // Tab NF-e Fiscal state
   const [nfeProvider, setNfeProvider] = useState<NfeProvider>('nuvem_fiscal')
@@ -61,11 +92,27 @@ export const Settings: React.FC = () => {
     if (!tenant?.id) return
 
     setCompanyName(tenant.name || '')
-    setCnpj(tenant.cnpj || '')
+    const formattedCnpj = tenant.cnpj ? formatCnpjMask(tenant.cnpj) : ''
+    setCnpj(formattedCnpj)
     setIe(tenant.ie || '')
     setEmail(tenant.email || '')
-    setPhone(tenant.phone || '')
+    setPhone(tenant.phone ? formatPhoneMask(tenant.phone) : '')
     setAddress(tenant.address || '')
+
+    // Tentar detectar UF inicial a partir do CNPJ ou endereço
+    if (formattedCnpj) {
+      const derived = deriveUfFromCnpj(formattedCnpj)
+      if (derived) {
+        setUf(derived)
+      }
+    }
+    if (tenant.address) {
+      // Checar se há indicação de UF como "- SP" ou "SP"
+      const match = tenant.address.match(/(?:-\s*|\s+)([A-Z]{2})(?:,|$)/)
+      if (match && BRAZILIAN_UFS.some((u) => u.uf === match[1])) {
+        setUf(match[1] as BrazilianUF)
+      }
+    }
 
     const loadSettingsData = async () => {
       try {
@@ -93,20 +140,234 @@ export const Settings: React.FC = () => {
     loadSettingsData()
   }, [tenant?.id])
 
-  // Save Empresa
+  // Validation field handler for Empresa
+  const validateEmpresaField = (name: string, value: string, extra?: any) => {
+    let newErrors = { ...errorsEmpresa }
+
+    switch (name) {
+      case 'companyName':
+        if (!value.trim()) {
+          newErrors.companyName = 'Razão Social ou Nome Fantasia é obrigatório.'
+        } else if (value.trim().length < 3) {
+          newErrors.companyName = 'Informe pelo menos 3 caracteres.'
+        } else {
+          delete newErrors.companyName
+        }
+        break
+
+      case 'cnpj':
+        if (!value.trim()) {
+          newErrors.cnpj = 'CNPJ da empresa é obrigatório.'
+        } else {
+          const res = validateCNPJ(value)
+          if (!res.isValid) {
+            newErrors.cnpj = res.message || 'CNPJ inválido.'
+          } else {
+            delete newErrors.cnpj
+          }
+        }
+        break
+
+      case 'ie':
+        if (value.trim()) {
+          const res = validateInscricaoEstadual(value, extra?.uf || uf)
+          if (!res.isValid) {
+            newErrors.ie = res.message || 'Inscrição Estadual inválida.'
+          } else {
+            delete newErrors.ie
+          }
+        } else {
+          delete newErrors.ie
+        }
+        break
+
+      case 'email':
+        if (value.trim()) {
+          const res = validateEmail(value)
+          if (!res.isValid) {
+            newErrors.email = res.message || 'E-mail inválido.'
+          } else {
+            delete newErrors.email
+          }
+        } else {
+          delete newErrors.email
+        }
+        break
+
+      case 'phone':
+        if (value.trim()) {
+          const res = validatePhone(value, false)
+          if (!res.isValid) {
+            newErrors.phone = res.message || 'Telefone inválido.'
+          } else {
+            delete newErrors.phone
+          }
+        } else {
+          delete newErrors.phone
+        }
+        break
+
+      default:
+        break
+    }
+
+    setErrorsEmpresa(newErrors)
+    return newErrors
+  }
+
+  const handleCnpjChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatCnpjMask(e.target.value)
+    setCnpj(formatted)
+    if (touchedEmpresa.cnpj) {
+      validateEmpresaField('cnpj', formatted)
+    }
+
+    // Auto-detect UF from CNPJ
+    const clean = formatted.replace(/[./\-\s]/g, '')
+    if (clean.length >= 8) {
+      const derived = deriveUfFromCnpj(formatted)
+      if (derived) {
+        setUf(derived)
+        setIsUfAutoDetected(true)
+        if (ie && touchedEmpresa.ie) {
+          validateEmpresaField('ie', ie, { uf: derived })
+        }
+      }
+
+      if (clean.length === 14 && validateCNPJ(formatted).isValid) {
+        lookupCnpjData(formatted).then((data) => {
+          if (data?.uf) {
+            setUf(data.uf)
+            setIsUfAutoDetected(true)
+            if (ie && touchedEmpresa.ie) {
+              validateEmpresaField('ie', ie, { uf: data.uf })
+            }
+          }
+          if (data?.razaoSocial && !companyName) {
+            setCompanyName(data.razaoSocial)
+          }
+        })
+      }
+    }
+  }
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatPhoneMask(e.target.value)
+    setPhone(formatted)
+    if (touchedEmpresa.phone) {
+      validateEmpresaField('phone', formatted)
+    }
+  }
+
+  const handleIeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value.toUpperCase()
+    setIe(val)
+    if (touchedEmpresa.ie) {
+      validateEmpresaField('ie', val, { uf })
+    }
+  }
+
+  const handleUfChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newUf = e.target.value as BrazilianUF
+    setUf(newUf)
+    setIsUfAutoDetected(false)
+    if (ie && touchedEmpresa.ie) {
+      validateEmpresaField('ie', ie, { uf: newUf })
+    }
+  }
+
+  const handleBlurEmpresa = (field: keyof typeof touchedEmpresa) => {
+    setTouchedEmpresa((prev) => ({ ...prev, [field]: true }))
+    switch (field) {
+      case 'companyName':
+        validateEmpresaField('companyName', companyName)
+        break
+      case 'cnpj':
+        validateEmpresaField('cnpj', cnpj)
+        break
+      case 'ie':
+        validateEmpresaField('ie', ie, { uf })
+        break
+      case 'email':
+        validateEmpresaField('email', email)
+        break
+      case 'phone':
+        validateEmpresaField('phone', phone)
+        break
+    }
+  }
+
+  // Save Empresa with complete validation
   const handleSaveEmpresa = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!tenant?.id) return
 
+    setTouchedEmpresa({
+      companyName: true,
+      cnpj: true,
+      ie: true,
+      email: true,
+      phone: true,
+    })
+
+    const validationErrors: typeof errorsEmpresa = {}
+
+    if (!companyName.trim()) {
+      validationErrors.companyName = 'Razão Social ou Nome Fantasia é obrigatório.'
+    } else if (companyName.trim().length < 3) {
+      validationErrors.companyName = 'Informe pelo menos 3 caracteres.'
+    }
+
+    if (!cnpj.trim()) {
+      validationErrors.cnpj = 'CNPJ da empresa é obrigatório.'
+    } else {
+      const cnpjRes = validateCNPJ(cnpj)
+      if (!cnpjRes.isValid) {
+        validationErrors.cnpj = cnpjRes.message || 'CNPJ inválido.'
+      }
+    }
+
+    if (ie.trim()) {
+      const ieRes = validateInscricaoEstadual(ie, uf)
+      if (!ieRes.isValid) {
+        validationErrors.ie = ieRes.message || 'Inscrição Estadual inválida para a UF selecionada.'
+      }
+    }
+
+    if (email.trim()) {
+      const emailRes = validateEmail(email)
+      if (!emailRes.isValid) {
+        validationErrors.email = emailRes.message || 'E-mail inválido.'
+      }
+    }
+
+    if (phone.trim()) {
+      const phoneRes = validatePhone(phone, false)
+      if (!phoneRes.isValid) {
+        validationErrors.phone = phoneRes.message || 'Telefone inválido.'
+      }
+    }
+
+    setErrorsEmpresa(validationErrors)
+
+    if (Object.keys(validationErrors).length > 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Erros no formulário',
+        description: 'Por favor, corrija os campos destacados antes de salvar.',
+      })
+      return
+    }
+
     setIsSavingEmpresa(true)
     try {
       await settingsService.updateTenant(tenant.id, {
-        name: companyName,
-        cnpj,
-        ie,
-        email,
-        phone,
-        address,
+        name: companyName.trim(),
+        cnpj: cnpj.trim(),
+        ie: ie.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        address: address.trim(),
       })
 
       toast({
@@ -296,7 +557,7 @@ export const Settings: React.FC = () => {
             </p>
           </div>
 
-          <form onSubmit={handleSaveEmpresa} className="space-y-4">
+          <form onSubmit={handleSaveEmpresa} noValidate className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
                 Razão Social / Nome Fantasia *
@@ -305,36 +566,124 @@ export const Settings: React.FC = () => {
                 type="text"
                 required
                 value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
+                onChange={(e) => {
+                  setCompanyName(e.target.value)
+                  if (touchedEmpresa.companyName)
+                    validateEmpresaField('companyName', e.target.value)
+                }}
+                onBlur={() => handleBlurEmpresa('companyName')}
                 placeholder="Ex: WShift Comércio Eletrônico Ltda"
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900"
+                className={`w-full px-3 py-2 text-xs bg-slate-50 border rounded-lg text-slate-900 transition-colors focus:outline-none focus:ring-2 ${
+                  touchedEmpresa.companyName && errorsEmpresa.companyName
+                    ? 'border-rose-400 focus:ring-rose-200 focus:border-rose-500 bg-rose-50/20'
+                    : 'border-slate-200 focus:ring-emerald-500/20 focus:border-emerald-500'
+                }`}
               />
+              {touchedEmpresa.companyName && errorsEmpresa.companyName && (
+                <p className="mt-1 flex items-center gap-1 text-[11px] text-rose-600 font-medium">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span>{errorsEmpresa.companyName}</span>
+                </p>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
-                  CNPJ
+            {/* CNPJ */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700 uppercase">
+                  CNPJ da Empresa *
                 </label>
-                <input
-                  type="text"
-                  value={cnpj}
-                  onChange={(e) => setCnpj(e.target.value)}
-                  placeholder="00.000.000/0001-00"
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900"
-                />
+                <span className="text-[11px] text-emerald-600 font-medium">
+                  Numérico & Alfanumérico (Receita Federal)
+                </span>
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
-                  Inscrição Estadual (IE)
-                </label>
+              <input
+                type="text"
+                required
+                value={cnpj}
+                onChange={handleCnpjChange}
+                onBlur={() => handleBlurEmpresa('cnpj')}
+                placeholder="00.000.000/0001-00 ou 12.ABC.345/0001-90"
+                maxLength={18}
+                className={`w-full px-3 py-2 text-xs bg-slate-50 border rounded-lg font-mono text-slate-900 uppercase transition-colors focus:outline-none focus:ring-2 ${
+                  touchedEmpresa.cnpj && errorsEmpresa.cnpj
+                    ? 'border-rose-400 focus:ring-rose-200 focus:border-rose-500 bg-rose-50/20'
+                    : 'border-slate-200 focus:ring-emerald-500/20 focus:border-emerald-500'
+                }`}
+              />
+              {touchedEmpresa.cnpj && errorsEmpresa.cnpj ? (
+                <p className="mt-1 flex items-center gap-1 text-[11px] text-rose-600 font-medium">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span>{errorsEmpresa.cnpj}</span>
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Validação completa dos dígitos verificadores (DVs) oficiais.
+                </p>
+              )}
+            </div>
+
+            {/* UF da IE & Inscrição Estadual (IE) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="sm:col-span-1">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 uppercase">
+                    UF da IE
+                  </label>
+                  {isUfAutoDetected && (
+                    <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                      Auto
+                    </span>
+                  )}
+                </div>
+                <select
+                  value={uf}
+                  onChange={handleUfChange}
+                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                >
+                  {BRAZILIAN_UFS.map((item) => (
+                    <option key={item.uf} value={item.uf}>
+                      {item.uf} - {item.name}
+                    </option>
+                  ))}
+                </select>
+                {isUfAutoDetected && (
+                  <p className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1 font-medium">
+                    <CheckCircle2 className="h-3 w-3" />
+                    UF derivada do CNPJ
+                  </p>
+                )}
+              </div>
+
+              <div className="sm:col-span-2">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 uppercase">
+                    Inscrição Estadual (IE)
+                  </label>
+                  <span className="text-[11px] text-slate-400">Opcional / ISENTO</span>
+                </div>
                 <input
                   type="text"
                   value={ie}
-                  onChange={(e) => setIe(e.target.value)}
-                  placeholder="123456789012"
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900"
+                  onChange={handleIeChange}
+                  onBlur={() => handleBlurEmpresa('ie')}
+                  placeholder="Ex: 123456789012 ou ISENTO"
+                  className={`w-full px-3 py-2 text-xs bg-slate-50 border rounded-lg font-mono text-slate-900 uppercase transition-colors focus:outline-none focus:ring-2 ${
+                    touchedEmpresa.ie && errorsEmpresa.ie
+                      ? 'border-rose-400 focus:ring-rose-200 focus:border-rose-500 bg-rose-50/20'
+                      : 'border-slate-200 focus:ring-emerald-500/20 focus:border-emerald-500'
+                  }`}
                 />
+                {touchedEmpresa.ie && errorsEmpresa.ie ? (
+                  <p className="mt-1 flex items-center gap-1 text-[11px] text-rose-600 font-medium">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    <span>{errorsEmpresa.ie}</span>
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Validada conforme regras da SEFAZ para o estado de {uf || 'origem'}.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -346,22 +695,48 @@ export const Settings: React.FC = () => {
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value)
+                    if (touchedEmpresa.email) validateEmpresaField('email', e.target.value)
+                  }}
+                  onBlur={() => handleBlurEmpresa('email')}
                   placeholder="contato@empresa.com.br"
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900"
+                  className={`w-full px-3 py-2 text-xs bg-slate-50 border rounded-lg text-slate-900 transition-colors focus:outline-none focus:ring-2 ${
+                    touchedEmpresa.email && errorsEmpresa.email
+                      ? 'border-rose-400 focus:ring-rose-200 focus:border-rose-500 bg-rose-50/20'
+                      : 'border-slate-200 focus:ring-emerald-500/20 focus:border-emerald-500'
+                  }`}
                 />
+                {touchedEmpresa.email && errorsEmpresa.email && (
+                  <p className="mt-1 flex items-center gap-1 text-[11px] text-rose-600 font-medium">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    <span>{errorsEmpresa.email}</span>
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
                   Telefone / WhatsApp
                 </label>
                 <input
-                  type="text"
+                  type="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={handlePhoneChange}
+                  onBlur={() => handleBlurEmpresa('phone')}
                   placeholder="(11) 98765-4321"
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900"
+                  maxLength={15}
+                  className={`w-full px-3 py-2 text-xs bg-slate-50 border rounded-lg text-slate-900 transition-colors focus:outline-none focus:ring-2 ${
+                    touchedEmpresa.phone && errorsEmpresa.phone
+                      ? 'border-rose-400 focus:ring-rose-200 focus:border-rose-500 bg-rose-50/20'
+                      : 'border-slate-200 focus:ring-emerald-500/20 focus:border-emerald-500'
+                  }`}
                 />
+                {touchedEmpresa.phone && errorsEmpresa.phone && (
+                  <p className="mt-1 flex items-center gap-1 text-[11px] text-rose-600 font-medium">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    <span>{errorsEmpresa.phone}</span>
+                  </p>
+                )}
               </div>
             </div>
 
@@ -374,7 +749,7 @@ export const Settings: React.FC = () => {
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="Av. Paulista, 1000, Bela Vista, São Paulo - SP, CEP 01310-100"
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900"
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
               />
             </div>
 

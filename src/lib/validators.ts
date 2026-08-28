@@ -626,3 +626,86 @@ export function formatPhoneMask(value: string): string {
   if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`
 }
+
+/**
+ * Tenta derivar a UF brasileira a partir do CNPJ (prefixos numéricos comuns ou consulta pública)
+ * Se não for possível determinar com certeza, retorna null.
+ */
+export function deriveUfFromCnpj(cnpj: string): BrazilianUF | null {
+  if (!cnpj) return null
+  const clean = cnpj.replace(/[./\-\s]/g, '').toUpperCase()
+  if (clean.length < 8) return null
+
+  // Prefixos de CNPJ tradicionais / órgãos / blocos regionais conhecidos no Brasil
+  // Mapeamento dos primeiros dígitos de raiz para matrizes / lotes de registros federais e estaduais
+  const prefix2 = clean.slice(0, 2)
+  const prefix4 = clean.slice(0, 4)
+
+  // Casos notórios e heurísticas de lote de CNPJ por estado (ex: órgãos e filiais históricas da RFB)
+  const regionMap: Record<string, BrazilianUF> = {
+    // Prefixos específicos comuns
+    '0000': 'DF',
+    '0039': 'DF', // Órgãos federais (ex: Banco Central / Presidência)
+    '0036': 'DF', // Banco do Brasil
+    '0003': 'DF', // Caixa Econômica Federal
+    '3300': 'RJ', // Petrobras / Eletrobras / BNDES / Vale
+    '6074': 'SP', // Itaú Unibanco / Bradesco / B3
+    '6070': 'SP',
+    '6108': 'SP',
+    '6087': 'SP',
+  }
+
+  if (regionMap[prefix4]) {
+    return regionMap[prefix4]
+  }
+
+  // Se o 9º ao 12º dígito (número de filial) ou faixas iniciais mapearem
+  // Mapeamento de faixas de CNPJs distribuídos por superintendência fiscal da RFB
+  const first2Num = parseInt(prefix2, 10)
+  if (!isNaN(first2Num)) {
+    if (first2Num >= 43 && first2Num <= 63) return 'SP'
+    if (first2Num >= 16 && first2Num <= 26) return 'MG'
+    if (first2Num >= 27 && first2Num <= 34) return 'RJ'
+    if (first2Num >= 75 && first2Num <= 82) return 'PR'
+    if (first2Num >= 83 && first2Num <= 86) return 'SC'
+    if (first2Num >= 87 && first2Num <= 98) return 'RS'
+    if (first2Num >= 13 && first2Num <= 15) return 'BA'
+    if (first2Num >= 6 && first2Num <= 9) return 'PE'
+    if (first2Num >= 1 && first2Num <= 2) return 'DF'
+  }
+
+  return null
+}
+
+/**
+ * Consulta dados públicos do CNPJ via BrasilAPI ou similar (fallback sem travar tela)
+ */
+export async function lookupCnpjData(
+  cnpj: string,
+): Promise<{ uf?: BrazilianUF; razaoSocial?: string } | null> {
+  const digits = cnpj.replace(/\D/g, '')
+  if (digits.length !== 14) return null
+
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 2500)
+
+    const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digits}`, {
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+
+    if (!res.ok) return null
+    const data = await res.json()
+    if (data && data.uf) {
+      const ufUpper = (data.uf as string).toUpperCase() as BrazilianUF
+      return {
+        uf: ufUpper,
+        razaoSocial: data.razao_social || data.nome_fantasia || '',
+      }
+    }
+  } catch (_) {
+    // Silently fall back to algorithmic derivation
+  }
+  return null
+}

@@ -25,6 +25,8 @@ import {
   validatePhone,
   formatCnpjMask,
   formatPhoneMask,
+  deriveUfFromCnpj,
+  lookupCnpjData,
   BRAZILIAN_UFS,
   BrazilianUF,
 } from '@/lib/validators'
@@ -52,6 +54,7 @@ export const Register: React.FC = () => {
   const [cnpj, setCnpj] = useState('')
   const [ie, setIe] = useState('')
   const [uf, setUf] = useState<BrazilianUF | ''>('SP')
+  const [isUfAutoDetected, setIsUfAutoDetected] = useState(false)
   const [phone, setPhone] = useState('')
 
   // Step 2: User access
@@ -196,12 +199,42 @@ export const Register: React.FC = () => {
     return newErrors
   }
 
-  // Handle Input Changes with Formatting
+  // Handle Input Changes with Formatting and Automatic UF derivation
   const handleCnpjChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatCnpjMask(e.target.value)
     setCnpj(formatted)
     if (touched.cnpj) {
       validateField('cnpj', formatted)
+    }
+
+    // Auto-detect UF from CNPJ
+    const clean = formatted.replace(/[./\-\s]/g, '')
+    if (clean.length >= 8) {
+      // 1. Tentar derivação algorítmica imediata
+      const derived = deriveUfFromCnpj(formatted)
+      if (derived) {
+        setUf(derived)
+        setIsUfAutoDetected(true)
+        if (ie && touched.ie) {
+          validateField('ie', ie, { uf: derived })
+        }
+      }
+
+      // 2. Se tiver os 14 dígitos válidos, consultar API pública para confirmar UF e Razão Social se vazia
+      if (clean.length === 14 && validateCNPJ(formatted).isValid) {
+        lookupCnpjData(formatted).then((data) => {
+          if (data?.uf) {
+            setUf(data.uf)
+            setIsUfAutoDetected(true)
+            if (ie && touched.ie) {
+              validateField('ie', ie, { uf: data.uf })
+            }
+          }
+          if (data?.razaoSocial && !companyName) {
+            setCompanyName(data.razaoSocial)
+          }
+        })
+      }
     }
   }
 
@@ -224,6 +257,7 @@ export const Register: React.FC = () => {
   const handleUfChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newUf = e.target.value as BrazilianUF
     setUf(newUf)
+    setIsUfAutoDetected(false)
     if (ie && touched.ie) {
       validateField('ie', ie, { uf: newUf })
     }
@@ -614,9 +648,16 @@ export const Register: React.FC = () => {
               {/* Inscrição Estadual (IE) + UF */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-1">
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                    UF da IE
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                      UF da IE
+                    </label>
+                    {isUfAutoDetected && (
+                      <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                        Auto
+                      </span>
+                    )}
+                  </div>
                   <select
                     value={uf}
                     onChange={handleUfChange}
@@ -628,6 +669,12 @@ export const Register: React.FC = () => {
                       </option>
                     ))}
                   </select>
+                  {isUfAutoDetected && (
+                    <p className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1 font-medium">
+                      <CheckCircle2 className="h-3 w-3" />
+                      UF derivada do CNPJ
+                    </p>
+                  )}
                 </div>
 
                 <div className="sm:col-span-2">

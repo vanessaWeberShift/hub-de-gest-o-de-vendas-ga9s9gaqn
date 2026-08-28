@@ -42,6 +42,7 @@ import { OrderRecord, ProductRecord, InvoiceRecord, MarketplaceConnectionRecord 
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
 import { useRealtime } from '@/hooks/use-realtime'
+import { OnboardingChecklist } from '@/components/OnboardingChecklist'
 
 export const Dashboard: React.FC = () => {
   const { user, tenant } = useAuth()
@@ -229,6 +230,9 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Onboarding Checklist for active tenant */}
+      <OnboardingChecklist variant="card" />
+
       {/* Header with Greeting and Period Selector */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
